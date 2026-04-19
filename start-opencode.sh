@@ -21,6 +21,12 @@ OPENCODE_PROJECT_ROOT="${OPENCODE_PROJECT_ROOT:-$(cd "$(dirname "$0")" && pwd)}"
 OPENCODE_BACKEND_HOST="${OPENCODE_BACKEND_HOST:-0.0.0.0}"
 OPENCODE_BACKEND_PORT="${OPENCODE_BACKEND_PORT:-4096}"
 
+# 权限模式
+# supervised: 使用现有配置，保留交互式权限确认
+# deferred-review: 工作区内常用工具自动放行，工作区外访问仍拒绝
+# unattended: 更激进的自动放行，适合批处理
+OPENCODE_PERMISSION_MODE="${OPENCODE_PERMISSION_MODE:-deferred-review}"
+
 # 前端配置
 OPENCODE_FRONTEND_HOST="${OPENCODE_FRONTEND_HOST:-127.0.0.1}"
 OPENCODE_FRONTEND_PORT="${OPENCODE_FRONTEND_PORT:-3000}"
@@ -51,6 +57,27 @@ error() {
 
 ensure_dir() {
     mkdir -p "$1"
+}
+
+build_permission_env() {
+    case "$OPENCODE_PERMISSION_MODE" in
+        supervised)
+            OPENCODE_PERMISSION_JSON=""
+            OPENCODE_CONFIG_CONTENT_JSON='{"experimental":{"continue_loop_on_deny":true}}'
+            ;;
+        deferred-review)
+            OPENCODE_PERMISSION_JSON='{"read":"allow","glob":"allow","grep":"allow","list":"allow","edit":{"*":"allow","packages/opencode/migration/*":"deny"},"bash":"allow","task":"allow","todowrite":"allow","skill":"allow","question":"allow","webfetch":"allow","lsp":"allow","workflow_tool_approval":"allow","external_directory":"deny","websearch":"ask","codesearch":"ask"}'
+            OPENCODE_CONFIG_CONTENT_JSON='{"experimental":{"continue_loop_on_deny":true}}'
+            ;;
+        unattended)
+            OPENCODE_PERMISSION_JSON='{"read":"allow","glob":"allow","grep":"allow","list":"allow","edit":{"*":"allow","packages/opencode/migration/*":"deny"},"bash":"allow","task":"allow","todowrite":"allow","skill":"allow","question":"allow","webfetch":"allow","websearch":"allow","codesearch":"allow","lsp":"allow","workflow_tool_approval":"allow","external_directory":"deny"}'
+            OPENCODE_CONFIG_CONTENT_JSON='{"experimental":{"continue_loop_on_deny":true}}'
+            ;;
+        *)
+            error "Unknown OPENCODE_PERMISSION_MODE: ${OPENCODE_PERMISSION_MODE} (expected: supervised, deferred-review, unattended)"
+            exit 1
+            ;;
+    esac
 }
 
 check_bun() {
@@ -89,6 +116,8 @@ start_backend() {
     fi
 
     log "🤖 Starting OpenCode backend on ${OPENCODE_BACKEND_HOST}:${OPENCODE_BACKEND_PORT}..."
+    build_permission_env
+    log "   → Permission mode: ${OPENCODE_PERMISSION_MODE}"
 
     cd "${OPENCODE_PROJECT_ROOT}/packages/opencode"
 
@@ -102,7 +131,10 @@ start_backend() {
         log "   → CORS origins: $OPENCODE_CORS_ORIGINS"
     fi
 
-    nohup bun run --conditions=browser ./src/index.ts serve \
+    nohup env \
+        OPENCODE_PERMISSION="${OPENCODE_PERMISSION_JSON}" \
+        OPENCODE_CONFIG_CONTENT="${OPENCODE_CONFIG_CONTENT_JSON}" \
+        bun run --conditions=browser ./src/index.ts serve \
         --hostname "${OPENCODE_BACKEND_HOST}" \
         --port "${OPENCODE_BACKEND_PORT}" \
         $cors_args \
@@ -229,6 +261,7 @@ show_status() {
     local backend_pid=$(get_pid "${OPENCODE_PID_DIR}/backend.pid")
     if is_process_running "$backend_pid"; then
         log "✅ Backend:  Running (PID: $backend_pid) on ${OPENCODE_BACKEND_HOST}:${OPENCODE_BACKEND_PORT}"
+        log "   → Permission Mode: ${OPENCODE_PERMISSION_MODE}"
     else
         log "❌ Backend:  Not running"
     fi
@@ -312,6 +345,7 @@ main() {
             echo "  OPENCODE_BACKEND_SERVER_HOST - Backend server host for frontend (default: 127.0.0.1)"
             echo "  OPENCODE_BACKEND_SERVER_PORT - Backend server port for frontend (default: OPENCODE_BACKEND_PORT)"
             echo "  OPENCODE_CORS_ORIGINS        - CORS allowed origins, comma separated (e.g. http://11.166.14.24:3000)"
+            echo "  OPENCODE_PERMISSION_MODE     - supervised | deferred-review | unattended"
             echo "  OPENCODE_LOG_DIR             - Log directory"
             echo "  OPENCODE_PID_DIR             - PID files directory"
             echo ""
@@ -322,9 +356,12 @@ main() {
             echo "  # Start with custom ports"
             echo "  OPENCODE_BACKEND_PORT=8080 OPENCODE_FRONTEND_PORT=5173 ./start-opencode.sh"
             echo ""
+            echo "  # Start backend in semi-unattended mode"
+            echo "  OPENCODE_PERMISSION_MODE=deferred-review ./start-opencode.sh backend"
+            echo ""
             echo "  # Separate deployment - Backend server (with CORS)"
-            echo "  OPENCODE_BACKEND_HOST=0.0.0.0 OPENCODE_BACKEND_PORT=4096 \\"
-            echo "  OPENCODE_CORS_ORIGINS=http://11.166.14.24:3000 \\"
+            echo "  OPENCODE_BACKEND_HOST=0.0.0.0 OPENCODE_BACKEND_PORT=4096 \\" 
+            echo "  OPENCODE_CORS_ORIGINS=http://11.166.14.24:3000 \\" 
             echo "  ./start-opencode.sh backend"
             echo ""
             echo "  # Separate deployment - Frontend server (connecting to remote backend)"
@@ -337,4 +374,3 @@ main() {
 }
 
 main "$@"
-

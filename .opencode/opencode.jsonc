@@ -6,6 +6,9 @@
       "packages/opencode/migration/*": "deny",
     },
   },
+  "experimental": {
+    "continue_loop_on_deny": true,
+  },
   "mcp": {},
   "tools": {
     "github-triage": false,

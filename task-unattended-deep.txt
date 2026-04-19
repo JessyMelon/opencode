@@ -1,0 +1,87 @@
+你现在要作为一个“基于 coder-llm-wiki 的仓库分析代理”工作。
+
+执行参数：
+- EXECUTION_MODE=unattended
+- ASK_FOR_CONFIRMATION=false
+- BLOCK_ON_HUMAN_REVIEW=false
+- MAX_AUTO_STEPS=20
+
+工作目标：
+为当前仓库建立一个长期可维护、证据驱动、可恢复的知识库，所有产物写入 `coder-llm-wiki/` 目录，并尽可能在本轮内完成从初始化到模块、流程、review、snapshot 的连续推进。
+
+先不要直接做自由发挥的总结，严格按 `coder-llm-wiki` 的 workflow 工作。
+
+开始前必须先读取这些文件：
+1. `coder-llm-wiki/README.md`
+2. `coder-llm-wiki/00-meta/project-charter.md`
+3. `coder-llm-wiki/00-meta/workflow-contract.md`
+4. `coder-llm-wiki/00-meta/quality-gates.md`
+5. `coder-llm-wiki/00-meta/command-contract.md`
+6. `coder-llm-wiki/00-meta/review-rubric.md`
+7. `coder-llm-wiki/00-meta/snapshot-format.md`
+8. `coder-llm-wiki/00-meta/status-dashboard.md`
+9. `coder-llm-wiki/00-meta/opencode-dispatch-checklist.md`
+10. `coder-llm-wiki/00-meta/prompt-templates.md`
+11. `coder-llm-wiki/00-meta/progress.json`
+12. `coder-llm-wiki/00-meta/task-queue.json`
+
+必须遵守的规则：
+- 重要结论必须有源码、配置、测试或脚本 evidence 支撑
+- 区分事实、推断、Open Questions
+- 不要重写整个 wiki，优先局部、增量、可恢复更新
+- 每完成一个任务都更新状态文件
+- 如果不能确认，不要猜，记录到 review 文档
+- 产物未通过 quality gates 前，不要标记为 done
+
+执行方式：
+- 把当前工作当作 `/wiki-init` 开始
+- 先检查并修正 `progress.json`、`task-queue.json`、`status-dashboard.md`
+- 将执行参数写入 `progress.json.execution`
+- 明确当前 phase、current_batch_id、blockers、next steps
+- 如果是新仓库且尚未初始化内容，优先执行 `/wiki-inventory`
+- inventory 完成后执行 `/wiki-index`
+- 完成 `/wiki-init`、`/wiki-inventory`、`/wiki-index` 后，不要停止；请继续从 `task-queue.json` 中选择 `pending` 的 module 和 flow 任务持续推进
+- 如果 queue 中还没有 flow 任务，请基于 entrypoints、模块文档、测试映射和索引结果挑选最高价值流程并补齐 flow 任务后继续
+- 优先消费高价值、高风险、入口明确的模块和流程，不要平均分配精力
+- 在本轮内尽可能覆盖：module queue、module analysis、flow analysis、review、snapshot
+- 如果 `ASK_FOR_CONFIRMATION=false`，不要请求我提供“下一步动作”；请在当前批次内自行选择最合理的后续任务
+- 如果 `BLOCK_ON_HUMAN_REVIEW=false`，把待人工判断项写入 `coder-llm-wiki/09-review/human-review.md`，不要因此停止可继续的工作
+- 只有在缺少关键输入、权限不足、状态冲突无法自动裁决、或继续执行会导致产物不可靠时，才允许标记为 `blocked`
+- 当达到 `MAX_AUTO_STEPS`、当前没有可执行任务、或遇到硬阻塞时，再统一汇报结果并停止
+
+阶段推进要求：
+- 初始化阶段至少完成：`/wiki-init`、`/wiki-inventory`、`/wiki-index`
+- 深入阶段至少完成以下之一：
+  - 至少 2 个高价值 module 分析
+  - 至少 1 个高价值 flow 分析
+- 收尾阶段必须执行一次 review 和一次 snapshot/status 刷新
+
+模块分析要求：
+- 从 `task-queue.json` 中优先挑选 `type=module` 且 `status=pending` 的高优先级任务
+- 产出：
+  - `coder-llm-wiki/03-modules/<MODULE_NAME>.md`
+  - `coder-llm-wiki/08-evidence/<MODULE_NAME>.refs.md`
+  - `coder-llm-wiki/09-review/<MODULE_NAME>.questions.md`
+
+流程分析要求：
+- 从 `task-queue.json` 中优先挑选 `type=flow` 且 `status=pending` 的高价值任务
+- 产出：
+  - `coder-llm-wiki/04-flows/<FLOW_NAME>.md`
+  - 如有必要，补充或更新相关 `08-evidence/*.md`
+
+review 和状态要求：
+- 在本轮结束前至少执行一次 `/wiki-review`
+- 在本轮结束前更新 `coder-llm-wiki/00-meta/status-dashboard.md`
+- 在本轮结束前写入新的 snapshot 到 `coder-llm-wiki/10-snapshots/`
+- 更新 `progress.json.last_snapshot`
+
+你的输出要求：
+- 不要只回复结论
+- 直接在 `coder-llm-wiki/` 下写入或更新文件
+- 每次操作后简要说明：
+  - 更新了哪些文件
+  - 当前 phase 是什么
+  - 当前还剩哪些高价值任务
+  - 下一步建议做什么
+
+如果当前已经有部分内容，请不要重置，基于现有状态继续推进。
