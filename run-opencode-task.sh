@@ -13,6 +13,8 @@ TITLE=""
 BACKGROUND=false
 START_BACKEND=true
 LOG_DIR="${OPENCODE_TASK_LOG_DIR:-${ROOT_DIR}/logs}"
+MODEL="${OPENCODE_MODEL:-}"
+VARIANT="${OPENCODE_VARIANT:-}"
 
 usage() {
     cat <<'EOF'
@@ -25,6 +27,9 @@ Options:
   --server <url>        default: http://127.0.0.1:4096
   --dir <path>          working directory for the task
   --title <title>       optional session title
+  --model <provider/model>
+                        model to use, e.g. openai/gpt-4.1
+  --variant <variant>   model variant, e.g. high | max | minimal
   --prompt-file <file>  read prompt from file
   --background          run task in background and write log
   --no-start            do not auto-start backend
@@ -32,6 +37,7 @@ Options:
 
 Examples:
   ./run-opencode-task.sh --mode deferred-review -- "分析当前仓库并写入 coder-llm-wiki"
+  ./run-opencode-task.sh --model openai/gpt-4.1 --variant high -- "修复当前项目中的类型错误"
   ./run-opencode-task.sh --mode unattended --background --prompt-file ./task.txt
 EOF
 }
@@ -52,6 +58,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --title)
             TITLE="$2"
+            shift 2
+            ;;
+        --model)
+            MODEL="$2"
+            shift 2
+            ;;
+        --variant)
+            VARIANT="$2"
             shift 2
             ;;
         --prompt-file)
@@ -107,6 +121,14 @@ ARGS=(run --attach "$SERVER_URL" --dir "$RUN_DIR" --dangerously-skip-permissions
 
 if [[ -n "$TITLE" ]]; then
     ARGS+=(--title "$TITLE")
+fi
+
+if [[ -n "$MODEL" ]]; then
+    ARGS+=(--model "$MODEL")
+fi
+
+if [[ -n "$VARIANT" ]]; then
+    ARGS+=(--variant "$VARIANT")
 fi
 
 ARGS+=("$PROMPT")
