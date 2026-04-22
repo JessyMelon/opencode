@@ -1,6 +1,5 @@
 import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -27,6 +26,7 @@ import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { useMobileLayout } from "@/pages/mobile/use-mobile-layout"
 
 export function SessionSidePanel(props: {
   canReview: () => boolean
@@ -51,7 +51,8 @@ export function SessionSidePanel(props: {
   const dialog = useDialog()
   const { sessionKey, tabs, view } = useSessionLayout()
 
-  const isDesktop = createMediaQuery("(min-width: 768px)")
+  const isMobileLayout = useMobileLayout()
+  const isDesktop = createMemo(() => !isMobileLayout())
   const shown = createMemo(
     () =>
       platform.platform !== "desktop" ||

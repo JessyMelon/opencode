@@ -313,7 +313,7 @@ export function SessionHeader() {
           <Portal mount={mount()}>
             <div class="flex items-center gap-2">
               <Show when={projectDirectory()}>
-                <div class="hidden xl:flex items-center">
+                <div class="hidden md:flex items-center">
                   <Show
                     when={canOpen()}
                     fallback={

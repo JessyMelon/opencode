@@ -7,8 +7,12 @@
 #   ./start-opencode.sh              # 启动前端和后端
 #   ./start-opencode.sh backend      # 仅启动后端
 #   ./start-opencode.sh frontend     # 仅启动前端
+#   ./start-opencode.sh mobile       # 启动移动端可访问模式（局域网手机可访问）
+#   ./start-opencode.sh restart      # 重启前后端
+#   ./start-opencode.sh restart-mobile # 重启并启用移动端可访问模式
 #   ./start-opencode.sh stop         # 停止所有服务
 #   ./start-opencode.sh status       # 查看服务状态
+#   ./start-opencode.sh mobile-status # 查看移动端访问状态和 URL
 #
 
 set -e
@@ -40,6 +44,10 @@ OPENCODE_CORS_ORIGINS="${OPENCODE_CORS_ORIGINS:-}"
 OPENCODE_BACKEND_SERVER_HOST="${OPENCODE_BACKEND_SERVER_HOST:-127.0.0.1}"
 OPENCODE_BACKEND_SERVER_PORT="${OPENCODE_BACKEND_SERVER_PORT:-${OPENCODE_BACKEND_PORT}}"
 
+# 移动端模式下用于生成访问地址的主机 IP/域名（可选）
+# 若未设置，将在 mobile 命令启动时自动探测本机局域网 IP
+OPENCODE_MOBILE_HOST="${OPENCODE_MOBILE_HOST:-}"
+
 # 日志目录
 OPENCODE_LOG_DIR="${OPENCODE_LOG_DIR:-${OPENCODE_PROJECT_ROOT}/logs}"
 
@@ -57,6 +65,45 @@ error() {
 
 ensure_dir() {
     mkdir -p "$1"
+}
+
+detect_local_ip() {
+    local ip_addr=""
+
+    if command -v ip >/dev/null 2>&1; then
+        ip_addr=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+    fi
+
+    if [[ -z "$ip_addr" ]] && command -v hostname >/dev/null 2>&1; then
+        ip_addr=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+
+    if [[ -z "$ip_addr" ]]; then
+        ip_addr="127.0.0.1"
+    fi
+
+    echo "$ip_addr"
+}
+
+configure_mobile_mode() {
+    if [[ -z "$OPENCODE_MOBILE_HOST" ]]; then
+        OPENCODE_MOBILE_HOST="$(detect_local_ip)"
+    fi
+
+    OPENCODE_FRONTEND_HOST="0.0.0.0"
+
+    if [[ "$OPENCODE_BACKEND_SERVER_HOST" == "127.0.0.1" || "$OPENCODE_BACKEND_SERVER_HOST" == "localhost" ]]; then
+        OPENCODE_BACKEND_SERVER_HOST="$OPENCODE_MOBILE_HOST"
+    fi
+
+    if [[ -z "$OPENCODE_CORS_ORIGINS" ]]; then
+        OPENCODE_CORS_ORIGINS="http://${OPENCODE_MOBILE_HOST}:${OPENCODE_FRONTEND_PORT}"
+    fi
+
+    log "📱 Mobile mode enabled"
+    log "   → Mobile Host: ${OPENCODE_MOBILE_HOST}"
+    log "   → Frontend Host: ${OPENCODE_FRONTEND_HOST}"
+    log "   → Backend Server Host (for frontend): ${OPENCODE_BACKEND_SERVER_HOST}"
 }
 
 build_permission_env() {
@@ -219,7 +266,13 @@ start_frontend() {
 
     if is_process_running "$frontend_pid"; then
         log "✅ Frontend started successfully"
-        log "   → Access URL: http://${OPENCODE_FRONTEND_HOST}:${OPENCODE_FRONTEND_PORT}"
+        if [[ "$OPENCODE_FRONTEND_HOST" == "0.0.0.0" ]]; then
+            log "   → Access URL (local):  http://127.0.0.1:${OPENCODE_FRONTEND_PORT}"
+            local mobile_host="${OPENCODE_MOBILE_HOST:-${OPENCODE_BACKEND_SERVER_HOST}}"
+            log "   → Access URL (mobile): http://${mobile_host}:${OPENCODE_FRONTEND_PORT}"
+        else
+            log "   → Access URL: http://${OPENCODE_FRONTEND_HOST}:${OPENCODE_FRONTEND_PORT}"
+        fi
     else
         error "Frontend failed to start. Check log: $log_file"
         return 1
@@ -270,10 +323,35 @@ show_status() {
     local frontend_pid=$(get_pid "${OPENCODE_PID_DIR}/frontend.pid")
     if is_process_running "$frontend_pid"; then
         log "✅ Frontend: Running (PID: $frontend_pid) on ${OPENCODE_FRONTEND_HOST}:${OPENCODE_FRONTEND_PORT}"
-        log "   → Access URL: http://${OPENCODE_FRONTEND_HOST}:${OPENCODE_FRONTEND_PORT}"
+        if [[ "$OPENCODE_FRONTEND_HOST" == "0.0.0.0" ]]; then
+            log "   → Access URL (local):  http://127.0.0.1:${OPENCODE_FRONTEND_PORT}"
+            local mobile_host="${OPENCODE_MOBILE_HOST:-${OPENCODE_BACKEND_SERVER_HOST}}"
+            log "   → Access URL (mobile): http://${mobile_host}:${OPENCODE_FRONTEND_PORT}"
+        else
+            log "   → Access URL: http://${OPENCODE_FRONTEND_HOST}:${OPENCODE_FRONTEND_PORT}"
+        fi
     else
         log "❌ Frontend: Not running"
     fi
+}
+
+show_mobile_status() {
+    local mobile_host="${OPENCODE_MOBILE_HOST}"
+    if [[ -z "$mobile_host" ]]; then
+        mobile_host="$(detect_local_ip)"
+    fi
+
+    log "📱 OpenCode Mobile Status"
+    log "========================="
+    log "Mobile Host: ${mobile_host}"
+    log "Frontend Listen: ${OPENCODE_FRONTEND_HOST}:${OPENCODE_FRONTEND_PORT}"
+    log "Backend Listen:  ${OPENCODE_BACKEND_HOST}:${OPENCODE_BACKEND_PORT}"
+    log "Backend Server(for frontend): ${OPENCODE_BACKEND_SERVER_HOST}:${OPENCODE_BACKEND_SERVER_PORT}"
+    log "CORS Origins: ${OPENCODE_CORS_ORIGINS:-<empty>}"
+    log "Access URL (local):  http://127.0.0.1:${OPENCODE_FRONTEND_PORT}"
+    log "Access URL (mobile): http://${mobile_host}:${OPENCODE_FRONTEND_PORT}"
+    log ""
+    show_status
 }
 
 # ==================== 主入口 ====================
@@ -300,6 +378,14 @@ main() {
             log ""
             show_status
             ;;
+        mobile)
+            check_bun
+            configure_mobile_mode
+            start_backend
+            start_frontend
+            log ""
+            show_status
+            ;;
         stop)
             stop_backend
             stop_frontend
@@ -320,21 +406,38 @@ main() {
             log ""
             show_status
             ;;
+        restart-mobile)
+            stop_backend
+            stop_frontend
+            sleep 2
+            check_bun
+            configure_mobile_mode
+            start_backend
+            start_frontend
+            log ""
+            show_status
+            ;;
         status)
             show_status
             ;;
+        mobile-status)
+            show_mobile_status
+            ;;
         *)
-            echo "Usage: $0 {backend|frontend|all|stop|stop-backend|stop-frontend|restart|status}"
+            echo "Usage: $0 {backend|frontend|all|mobile|stop|stop-backend|stop-frontend|restart|restart-mobile|status|mobile-status}"
             echo ""
             echo "Commands:"
             echo "  backend       - Start backend only"
             echo "  frontend      - Start frontend only"
             echo "  all           - Start both backend and frontend (default)"
+            echo "  mobile        - Start both services in mobile-access mode"
             echo "  stop          - Stop all services"
             echo "  stop-backend  - Stop backend only"
             echo "  stop-frontend - Stop frontend only"
             echo "  restart       - Restart all services"
+            echo "  restart-mobile- Restart all services in mobile-access mode"
             echo "  status        - Show service status"
+            echo "  mobile-status - Show mobile access status and URLs"
             echo ""
             echo "Environment Variables:"
             echo "  OPENCODE_PROJECT_ROOT        - Project root directory"
@@ -345,6 +448,7 @@ main() {
             echo "  OPENCODE_BACKEND_SERVER_HOST - Backend server host for frontend (default: 127.0.0.1)"
             echo "  OPENCODE_BACKEND_SERVER_PORT - Backend server port for frontend (default: OPENCODE_BACKEND_PORT)"
             echo "  OPENCODE_CORS_ORIGINS        - CORS allowed origins, comma separated (e.g. http://11.166.14.24:3000)"
+            echo "  OPENCODE_MOBILE_HOST         - Mobile access host/IP used by mobile mode"
             echo "  OPENCODE_PERMISSION_MODE     - supervised | deferred-review | unattended"
             echo "  OPENCODE_LOG_DIR             - Log directory"
             echo "  OPENCODE_PID_DIR             - PID files directory"
@@ -365,9 +469,15 @@ main() {
             echo "  ./start-opencode.sh backend"
             echo ""
             echo "  # Separate deployment - Frontend server (connecting to remote backend)"
-            echo "  OPENCODE_BACKEND_SERVER_HOST=11.166.14.24 OPENCODE_BACKEND_SERVER_PORT=4096 \\"
-            echo "  OPENCODE_FRONTEND_HOST=0.0.0.0 OPENCODE_FRONTEND_PORT=3000 \\"
+            echo "  OPENCODE_BACKEND_SERVER_HOST=11.166.14.24 OPENCODE_BACKEND_SERVER_PORT=4096 \\" 
+            echo "  OPENCODE_FRONTEND_HOST=0.0.0.0 OPENCODE_FRONTEND_PORT=3000 \\" 
             echo "  ./start-opencode.sh frontend"
+            echo ""
+            echo "  # Mobile mode (auto detect local IP)"
+            echo "  ./start-opencode.sh mobile"
+            echo ""
+            echo "  # Mobile mode (custom mobile host/IP)"
+            echo "  OPENCODE_MOBILE_HOST=192.168.1.23 ./start-opencode.sh mobile"
             exit 1
             ;;
     esac

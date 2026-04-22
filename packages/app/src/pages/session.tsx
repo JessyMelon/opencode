@@ -16,14 +16,12 @@ import {
   createResource,
 } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { createMediaQuery } from "@solid-primitives/media"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useLocal } from "@/context/local"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { createStore } from "solid-js/store"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Select } from "@opencode-ai/ui/select"
-import { Tabs } from "@opencode-ai/ui/tabs"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { Button } from "@opencode-ai/ui/button"
@@ -64,6 +62,11 @@ import { Persist, persisted } from "@/utils/persist"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { same } from "@/utils/same"
 import { formatServerError } from "@/utils/server-errors"
+import { MobileComposerShell } from "@/pages/mobile/mobile-composer-shell"
+import { MobileReviewSheet } from "@/pages/mobile/mobile-review-sheet"
+import { MobileSessionHeader } from "@/pages/mobile/mobile-session-header"
+import { MobileShell } from "@/pages/mobile/mobile-shell"
+import { useMobileLayout } from "@/pages/mobile/use-mobile-layout"
 
 const emptyUserMessages: UserMessage[] = []
 type FollowupItem = FollowupDraft & { id: string }
@@ -398,7 +401,8 @@ export default function Page() {
     ),
   )
 
-  const isDesktop = createMediaQuery("(min-width: 768px)")
+  const isMobileLayout = useMobileLayout()
+  const isDesktop = createMemo(() => !isMobileLayout())
   const size = createSizing()
   const desktopReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
   const desktopFileTreeOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
@@ -582,11 +586,11 @@ export default function Page() {
     list.push("turn")
     return list
   })
-  const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
+  const mobileReviewOpen = createMemo(() => !isDesktop() && !!params.id && store.mobileTab === "changes")
   const wantsReview = createMemo(() =>
     isDesktop()
       ? desktopFileTreeOpen() || (desktopReviewOpen() && activeTab() === "review")
-      : store.mobileTab === "changes",
+      : mobileReviewOpen(),
   )
   const vcsMode = createMemo<VcsMode | undefined>(() => {
     if (store.changes === "git" || store.changes === "branch") return store.changes
@@ -840,6 +844,7 @@ export default function Page() {
       sessionKey,
       () => {
         setStore("messageId", undefined)
+        setStore("mobileTab", "session")
         setStore("changes", "git")
         setUi("pendingMessage", undefined)
       },
@@ -1796,175 +1801,178 @@ export default function Page() {
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       {sessionSync() ?? ""}
       <SessionHeader />
-      <div class="flex-1 min-h-0 flex flex-col md:flex-row">
-        <Show when={!isDesktop() && !!params.id}>
-          <Tabs value={store.mobileTab} class="h-auto">
-            <Tabs.List>
-              <Tabs.Trigger
-                value="session"
-                class="!w-1/2 !max-w-none"
-                classes={{ button: "w-full" }}
-                onClick={() => setStore("mobileTab", "session")}
-              >
-                {language.t("session.tab.session")}
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="changes"
-                class="!w-1/2 !max-w-none !border-r-0"
-                classes={{ button: "w-full" }}
-                onClick={() => setStore("mobileTab", "changes")}
-              >
-                {hasReview()
+      <MobileShell
+        enabled={isMobileLayout()}
+        header={
+          <Show when={!!params.id}>
+            <MobileSessionHeader
+              title={language.t("session.tab.session")}
+              changesLabel={
+                hasReview()
                   ? language.t("session.review.filesChanged", { count: reviewCount() })
-                  : language.t("session.review.change.other")}
-              </Tabs.Trigger>
-            </Tabs.List>
-          </Tabs>
-        </Show>
-
-        {/* Session panel */}
-        <div
-          classList={{
-            "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
-            "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
-              !size.active() && !ui.reviewSnap,
-          }}
-          style={{
-            width: sessionPanelWidth(),
-          }}
-        >
-          <div class="flex-1 min-h-0 overflow-hidden">
-            <Switch>
-              <Match when={params.id}>
-                <Show when={messagesReady()}>
-                  <MessageTimeline
-                    mobileChanges={mobileChanges()}
-                    mobileFallback={reviewContent({
-                      diffStyle: "unified",
-                      classes: {
-                        root: "pb-8",
-                        header: "px-4",
-                        container: "px-4",
-                      },
-                      loadingClass: "px-4 py-4 text-text-weak",
-                      emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                    })}
-                    actions={actions}
-                    scroll={ui.scroll}
-                    onResumeScroll={resumeScroll}
-                    setScrollRef={setScrollRef}
-                    onScheduleScrollState={scheduleScrollState}
-                    onAutoScrollHandleScroll={autoScroll.handleScroll}
-                    onMarkScrollGesture={markScrollGesture}
-                    hasScrollGesture={hasScrollGesture}
-                    onUserScroll={markUserScroll}
-                    onTurnBackfillScroll={historyWindow.onScrollerScroll}
-                    onAutoScrollInteraction={autoScroll.handleInteraction}
-                    centered={centered()}
-                    setContentRef={(el) => {
-                      content = el
-                      autoScroll.contentRef(el)
-
-                      const root = scroller
-                      if (root) scheduleScrollState(root)
-                    }}
-                    turnStart={historyWindow.turnStart()}
-                    historyMore={historyMore()}
-                    historyLoading={historyLoading()}
-                    onLoadEarlier={() => {
-                      void historyWindow.loadAndReveal()
-                    }}
-                    renderedUserMessages={historyWindow.renderedUserMessages()}
-                    anchor={anchor}
-                  />
-                </Show>
-              </Match>
-              <Match when={true}>
-                <NewSessionView worktree={newSessionWorktree()} />
-              </Match>
-            </Switch>
-          </div>
-
-          <SessionComposerRegion
-            state={composer}
-            ready={!store.deferRender && messagesReady()}
-            centered={centered()}
-            inputRef={(el) => {
-              inputRef = el
+                  : language.t("session.review.change.other")
+              }
+              onOpenChanges={() => setStore("mobileTab", "changes")}
+            />
+          </Show>
+        }
+      >
+        <div class="flex-1 min-h-0 flex flex-col md:flex-row">
+          {/* Session panel */}
+          <div
+            classList={{
+              "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
+              "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
+                !size.active() && !ui.reviewSnap,
             }}
-            newSessionWorktree={newSessionWorktree()}
-            onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
-            onSubmit={() => {
-              comments.clear()
-              resumeScroll()
+            style={{
+              width: sessionPanelWidth(),
             }}
-            onResponseSubmit={resumeScroll}
-            followup={
-              params.id && !isChildSession()
-                ? {
-                    queue: queueEnabled,
-                    items: followupDock(),
-                    sending: sendingFollowup(),
-                    edit: editingFollowup(),
-                    onQueue: queueFollowup,
-                    onAbort: () => {
-                      const id = params.id
-                      if (!id) return
-                      setFollowup("paused", id, true)
-                    },
-                    onSend: (id) => {
-                      void sendFollowup(params.id!, id, { manual: true })
-                    },
-                    onEdit: editFollowup,
-                    onEditLoaded: clearFollowupEdit,
-                  }
-                : undefined
-            }
-            revert={
-              rolled().length > 0
-                ? {
-                    items: rolled(),
-                    restoring: restoring(),
-                    disabled: reverting(),
-                    onRestore: restore,
-                  }
-                : undefined
-            }
-            setPromptDockRef={(el) => {
-              promptDock = el
-            }}
-          />
+          >
+            <div class="flex-1 min-h-0 overflow-hidden">
+              <Switch>
+                <Match when={params.id}>
+                  <Show when={messagesReady()}>
+                    <MessageTimeline
+                      mobileChanges={false}
+                      mobileFallback={<div />}
+                      actions={actions}
+                      scroll={ui.scroll}
+                      onResumeScroll={resumeScroll}
+                      setScrollRef={setScrollRef}
+                      onScheduleScrollState={scheduleScrollState}
+                      onAutoScrollHandleScroll={autoScroll.handleScroll}
+                      onMarkScrollGesture={markScrollGesture}
+                      hasScrollGesture={hasScrollGesture}
+                      onUserScroll={markUserScroll}
+                      onTurnBackfillScroll={historyWindow.onScrollerScroll}
+                      onAutoScrollInteraction={autoScroll.handleInteraction}
+                      centered={centered()}
+                      setContentRef={(el) => {
+                        content = el
+                        autoScroll.contentRef(el)
 
-          <Show when={desktopReviewOpen()}>
-            <div onPointerDown={() => size.start()}>
-              <ResizeHandle
-                direction="horizontal"
-                size={layout.session.width()}
-                min={450}
-                max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.45}
-                onResize={(width) => {
-                  size.touch()
-                  layout.session.resize(width)
+                        const root = scroller
+                        if (root) scheduleScrollState(root)
+                      }}
+                      turnStart={historyWindow.turnStart()}
+                      historyMore={historyMore()}
+                      historyLoading={historyLoading()}
+                      onLoadEarlier={() => {
+                        void historyWindow.loadAndReveal()
+                      }}
+                      renderedUserMessages={historyWindow.renderedUserMessages()}
+                      anchor={anchor}
+                    />
+                  </Show>
+                </Match>
+                <Match when={true}>
+                  <NewSessionView worktree={newSessionWorktree()} />
+                </Match>
+              </Switch>
+            </div>
+
+            <MobileComposerShell enabled={isMobileLayout()}>
+              <SessionComposerRegion
+                state={composer}
+                ready={!store.deferRender && messagesReady()}
+                centered={centered()}
+                inputRef={(el) => {
+                  inputRef = el
+                }}
+                newSessionWorktree={newSessionWorktree()}
+                onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+                onSubmit={() => {
+                  comments.clear()
+                  resumeScroll()
+                }}
+                onResponseSubmit={resumeScroll}
+                followup={
+                  params.id && !isChildSession()
+                    ? {
+                        queue: queueEnabled,
+                        items: followupDock(),
+                        sending: sendingFollowup(),
+                        edit: editingFollowup(),
+                        onQueue: queueFollowup,
+                        onAbort: () => {
+                          const id = params.id
+                          if (!id) return
+                          setFollowup("paused", id, true)
+                        },
+                        onSend: (id) => {
+                          void sendFollowup(params.id!, id, { manual: true })
+                        },
+                        onEdit: editFollowup,
+                        onEditLoaded: clearFollowupEdit,
+                      }
+                    : undefined
+                }
+                revert={
+                  rolled().length > 0
+                    ? {
+                        items: rolled(),
+                        restoring: restoring(),
+                        disabled: reverting(),
+                        onRestore: restore,
+                      }
+                    : undefined
+                }
+                setPromptDockRef={(el) => {
+                  promptDock = el
                 }}
               />
-            </div>
-          </Show>
-        </div>
+            </MobileComposerShell>
 
-        <SessionSidePanel
-          canReview={canReview}
-          diffs={reviewDiffs}
-          diffsReady={reviewReady}
-          empty={reviewEmptyText}
-          hasReview={hasReview}
-          reviewCount={reviewCount}
-          reviewPanel={reviewPanel}
-          activeDiff={tree.activeDiff}
-          focusReviewDiff={focusReviewDiff}
-          reviewSnap={ui.reviewSnap}
-          size={size}
-        />
-      </div>
+            <MobileReviewSheet
+              opened={mobileReviewOpen()}
+              title={language.t("session.tab.review")}
+              closeLabel={language.t("common.goBack")}
+              onClose={() => setStore("mobileTab", "session")}
+            >
+              {reviewContent({
+                diffStyle: "unified",
+                classes: {
+                  root: "pb-8",
+                  header: "px-4",
+                  container: "px-4",
+                },
+                loadingClass: "px-4 py-4 text-text-weak",
+                emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+              })}
+            </MobileReviewSheet>
+
+            <Show when={desktopReviewOpen()}>
+              <div onPointerDown={() => size.start()}>
+                <ResizeHandle
+                  direction="horizontal"
+                  size={layout.session.width()}
+                  min={450}
+                  max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.45}
+                  onResize={(width) => {
+                    size.touch()
+                    layout.session.resize(width)
+                  }}
+                />
+              </div>
+            </Show>
+          </div>
+
+          <SessionSidePanel
+            canReview={canReview}
+            diffs={reviewDiffs}
+            diffsReady={reviewReady}
+            empty={reviewEmptyText}
+            hasReview={hasReview}
+            reviewCount={reviewCount}
+            reviewPanel={reviewPanel}
+            activeDiff={tree.activeDiff}
+            focusReviewDiff={focusReviewDiff}
+            reviewSnap={ui.reviewSnap}
+            size={size}
+          />
+        </div>
+      </MobileShell>
 
       <TerminalPanel />
     </div>

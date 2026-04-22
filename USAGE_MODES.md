@@ -220,6 +220,41 @@ less /home/admin/work/opencode/logs/task-YYYYMMDD-HHMMSS.log
 
 ## 常用命令速查
 
+### 移动端前端验证（手机访问）
+
+启动移动端可访问模式：
+
+```bash
+cd /home/admin/work/opencode
+./my_start.sh mobile
+```
+
+查看移动端访问地址与状态：
+
+```bash
+cd /home/admin/work/opencode
+./my_start.sh mobile-status
+```
+
+默认会输出两类地址：
+
+- `Access URL (local)`: 本机浏览器访问地址
+- `Access URL (mobile)`: 手机浏览器访问地址
+
+如果需要手动指定手机访问地址，可设置：
+
+```bash
+cd /home/admin/work/opencode
+OPENCODE_MOBILE_HOST=192.168.1.23 ./my_start.sh mobile
+```
+
+重启并保持移动端可访问模式：
+
+```bash
+cd /home/admin/work/opencode
+./my_start.sh restart-mobile
+```
+
 查看服务状态：
 
 ```bash
